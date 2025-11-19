@@ -99,7 +99,7 @@ jobs:
           path: target/release/${{ env.ARTIFACT_NAME }}
 
       - name: Update and push the 'nightly' tag
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/experimental'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -108,7 +108,7 @@ jobs:
         shell: bash
 
       - name: Upload Asset to Nightly Release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/experimental'
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
