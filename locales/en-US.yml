@@ -35,7 +35,7 @@ installer:
   error_verification_body: "Found %{file_name}, but its hash is incorrect. It matches neither the original nor the known patched version. %{details}"
   setup_launch_options_title: "Configure Steam?"
   setup_launch_options_prompt: "Do you want the installer to automatically configure Steam Launch Options to use the custom launcher?\n\nThis is required for the mod to work on Steam."
-  launch_options_exists_warning: "Existing Launch Options detected in Steam.\n\nWe skipped automatic configuration to avoid overwriting your settings. Please manually set the launch options to:\npowershell -ep Bypass -w h -f .\\launcher.ps1 %command%"
+  launch_options_exists_warning: "Existing Launch Options detected in Steam.\n\nWe skipped automatic configuration to avoid overwriting your settings. Please manually set the launch options to:\npowershell -ExecutionPolicy Bypass -WindowStyle Hidden -File launcher.ps1 %command%"
   restore_launch_options_title: "Restore Launch Options?"
   restore_launch_options_prompt: "Do you want to restore your original Steam Launch Options?"
   steam_running_prompt: "Steam must be closed to modify launch options. Please close Steam and click Retry."
