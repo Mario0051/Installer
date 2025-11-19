@@ -115,4 +115,6 @@ jobs:
           file: target/release/${{ env.ARTIFACT_NAME }}
           tag: nightly
           overwrite: true
+          prerelease: true
+          make_latest: false
           body: "Latest nightly build from commit `${{ github.sha }}`"
