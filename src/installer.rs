@@ -5,9 +5,34 @@ use registry::Hive;
 use steamlocate::SteamDir;
 use tinyjson::JsonValue;
 use crate::i18n::t;
-use windows::{core::HSTRING, Win32::{Foundation::HWND, UI::{Shell::{FOLDERID_RoamingAppData, SHGetKnownFolderPath, KF_FLAG_DEFAULT}, WindowsAndMessaging::{MessageBoxW, IDOK, IDYES, MB_ICONINFORMATION, MB_ICONWARNING, MB_ICONQUESTION, MB_OK, MB_OKCANCEL, MB_YESNO}}}};
+use windows::{core::HSTRING, Win32::{Foundation::HWND, UI::{Shell::{FOLDERID_RoamingAppData, SHGetKnownFolderPath, KF_FLAG_DEFAULT}, WindowsAndMessaging::{MessageBoxW, IDOK, IDYES, IDCANCEL, MB_ICONINFORMATION, MB_ICONWARNING, MB_ICONQUESTION, MB_OK, MB_OKCANCEL, MB_YESNO, MB_RETRYCANCEL}}}};
 
 use crate::utils::{self, get_system_directory};
+
+const LAUNCHER_SCRIPT: &str = r#"
+Set-Location -Path $PSScriptRoot
+
+$OriginalGame = "UmamusumePrettyDerby_Jpn.exe"
+$PatchedGame  = "FunnyHoney.exe"
+$BackupName   = "$OriginalGame.bak" 
+
+try {
+    Rename-Item -Path $OriginalGame -NewName $BackupName
+
+    Rename-Item -Path $PatchedGame -NewName $OriginalGame
+
+    Start-Process -FilePath $OriginalGame -Wait
+
+} finally {
+    if (Test-Path -Path $BackupName) {
+        Rename-Item -Path $OriginalGame -NewName $PatchedGame
+        Rename-Item -Path $BackupName -NewName $OriginalGame
+    }
+}
+"#;
+
+const LAUNCH_CMD: &str = "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File launcher.ps1 %command%";
+const LAUNCH_OPT_BACKUP_FILE: &str = ".hachimi_launch_options.bak";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum GameVersion {
@@ -319,63 +344,24 @@ impl Installer {
         Ok(())
     }
 
-    fn check_and_prompt_steam_autoupdate(&self) -> Result<(), Error> {
-        if self.hwnd.is_none() {
-            return Ok(());
-        }
+    fn ensure_steam_closed(&self) -> Result<(), Error> {
+        if self.hwnd.is_none() { return Ok(()); }
 
-        let (steam_app_id_str, install_dir) = match self.game_version {
-            Some(GameVersion::Steam) => ("3564400", self.install_dir.as_ref()),
-            _ => return Ok(()),
-        };
+        while utils::is_specific_process_running("steam.exe") {
+            let res = unsafe {
+                MessageBoxW(
+                    self.hwnd.as_ref(),
+                    &HSTRING::from(t!("installer.steam_running_prompt")),
+                    &HSTRING::from(t!("installer.warning")),
+                    MB_RETRYCANCEL | MB_ICONWARNING
+                )
+            };
 
-        if let Some(install_dir) = install_dir {
-            if let Some(steamapps_path) = find_steamapps_folder(install_dir) {
-                let manifest_path = steamapps_path.join(format!("appmanifest_{}.acf", steam_app_id_str));
-                let backup_path = manifest_path.with_extension("acf.bak");
-
-                if !manifest_path.is_file() {
-                    return Ok(());
-                }
-
-                let Ok(content) = std::fs::read_to_string(&manifest_path) else { return Ok(()) };
-
-                if content.contains("\"AutoUpdateBehavior\"\t\t\"1\"") {
-                    return Ok(());
-                }
-
-                if backup_path.exists() {
-                    return Ok(());
-                }
-
-                let res = unsafe {
-                    MessageBoxW(
-                        self.hwnd.as_ref(),
-                        &HSTRING::from(t!("installer.steam_auto_update_recommendation_prompt")),
-                        &HSTRING::from(t!("installer.change_auto_update_setting")),
-                        MB_ICONQUESTION | MB_YESNO
-                    )
-                };
-
-                if res == IDYES {
-                    if !backup_path.exists() {
-                        std::fs::copy(&manifest_path, &backup_path)?;
-                    }
-                    let new_content = content.replace("\"AutoUpdateBehavior\"\t\t\"0\"", "\"AutoUpdateBehavior\"\t\t\"1\"");
-                    if std::fs::write(&manifest_path, new_content).is_ok() {
-                        unsafe {
-                            MessageBoxW(
-                                self.hwnd.as_ref(),
-                                &HSTRING::from(t!("installer.steam_auto_update_success_message")),
-                                &HSTRING::from(t!("installer.auto_update_setting_changed")),
-                                MB_ICONINFORMATION | MB_OK
-                            );
-                        }
-                    }
-                }
+            if res == IDCANCEL {
+                return Err(Error::Generic("Steam is running. Cannot modify configuration.".into()));
             }
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
-
         Ok(())
     }
 
@@ -393,58 +379,37 @@ impl Installer {
 
         let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
 
-        const EXPECTED_ORIGINAL_HASH: &str = "d7f444ae7bcfc8b5a3e19e3d85e4182c1a4d5524a186ee201739f34b152162d2";
-        const EXPECTED_PATCHED_HASH: &str = "9d6955463a0a509a2355d2227a4ee9ef0ca5da3f0f908b0c846a1e3c218cb703";
-
         match self.game_version {
             Some(GameVersion::DMM) => {},
             Some(GameVersion::SteamGlobal) => {},
             Some(GameVersion::Steam) => {
+                const EXPECTED_ORIGINAL_HASH: &str = "d7f444ae7bcfc8b5a3e19e3d85e4182c1a4d5524a186ee201739f34b152162d2";
                 let steam_exe_path = install_path.join("UmamusumePrettyDerby_Jpn.exe");
-                let backup_exe_path = steam_exe_path.with_extension("exe.bak");
+                let patched_exe_path = install_path.join("FunnyHoney.exe");
 
-                let needs_patching = match utils::verify_file_hash(&steam_exe_path, EXPECTED_ORIGINAL_HASH) {
-                    Ok(_) => {
-                        true
-                    }
-                    Err(original_hash_err) => {
-                        match utils::verify_file_hash(&steam_exe_path, EXPECTED_PATCHED_HASH) {
-                            Ok(_) => {
-                                false
-                            }
-                            Err(_) => {
-                                let file_name_str = steam_exe_path
-                                    .file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy();
+                if let Err(e) = utils::verify_file_hash(&steam_exe_path, EXPECTED_ORIGINAL_HASH) {
+                    let error_msg = t!(
+                        "installer.error_verification_body",
+                        file_name = "UmamusumePrettyDerby_Jpn.exe",
+                        details = e.to_string()
+                    );
+                    return Err(Error::VerificationError(error_msg));
+                }
 
-                                let error_msg = t!(
-                                    "installer.error_verification_body",
-                                    file_name = file_name_str,
-                                    details = original_hash_err.to_string()
-                                );
-                                return Err(Error::VerificationError(error_msg));
-                            }
-                        }
-                    }
-                };
+                let original_exe_data = std::fs::read(&steam_exe_path)?;
+                let compressed_patch_data = include_bytes!("../umamusume.patch.zst");
+                let mut patch_data = Vec::new();
+                let mut decoder = zstd::Decoder::new(&compressed_patch_data[..])?;
+                decoder.read_to_end(&mut patch_data)?;
 
-                if needs_patching {
-                    std::fs::copy(&steam_exe_path, &backup_exe_path)?;
+                utils::apply_patch(&original_exe_data, &patch_data, &patched_exe_path)
+                    .map_err(|e| Error::Generic(e.to_string().into()))?;
 
-                    let original_exe_data = std::fs::read(&steam_exe_path)?;
-                    let compressed_patch_data = include_bytes!("../umamusume.patch.zst");
-                    let mut patch_data = Vec::new();
-                    let mut decoder = zstd::Decoder::new(&compressed_patch_data[..])?;
-                    decoder.read_to_end(&mut patch_data)?;
+                let launcher_path = install_path.join("launcher.ps1");
+                std::fs::write(&launcher_path, LAUNCHER_SCRIPT)?;
 
-                    let temp_exe_path = steam_exe_path.with_extension("exe.tmp");
-
-                    utils::apply_patch(&original_exe_data, &patch_data, &temp_exe_path)
-                        .map_err(|e| Error::Generic(e.to_string().into()))?;
-
-                    std::fs::remove_file(&steam_exe_path)?;
-                    std::fs::rename(&temp_exe_path, &steam_exe_path)?;
+                if let Err(e) = self.setup_launch_options("3564400") {
+                    return Err(e);
                 }
             },
             None => {
@@ -455,7 +420,197 @@ impl Installer {
             }
         }
 
-        self.check_and_prompt_steam_autoupdate()?;
+        Ok(())
+    }
+
+    fn find_vdf_app_range(content: &str, app_id: &str) -> Option<(usize, usize)> {
+        let app_key = format!("\"{}\"", app_id);
+        let app_idx = content.find(&app_key)?;
+
+        let open_brace_rel = content[app_idx..].find('{')?;
+        let start_block = app_idx + open_brace_rel + 1;
+
+        let mut depth = 1;
+        for (i, c) in content[start_block..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                return Some((start_block, start_block + i));
+            }
+        }
+        None
+    }
+
+    fn setup_launch_options(&self, app_id: &str) -> Result<(), Error> {
+        if self.hwnd.is_some() {
+            let res = unsafe {
+                MessageBoxW(
+                    self.hwnd.as_ref(),
+                    &HSTRING::from(t!("installer.setup_launch_options_prompt")),
+                    &HSTRING::from(t!("installer.setup_launch_options_title")),
+                    MB_ICONQUESTION | MB_YESNO
+                )
+            };
+            if res != IDYES { return Ok(()); }
+        }
+
+        self.ensure_steam_closed()?;
+
+        let steam_dir = SteamDir::locate().map_err(|_| Error::Generic("Could not locate Steam".into()))?;
+        let userdata_dir = steam_dir.path().join("userdata");
+        if !userdata_dir.exists() { return Ok(()); }
+
+        let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
+        let backup_path = install_path.join(LAUNCH_OPT_BACKUP_FILE);
+
+        for entry in std::fs::read_dir(userdata_dir)? {
+            let entry = entry?;
+            let config_path = entry.path().join("config").join("localconfig.vdf");
+
+            if config_path.exists() {
+                let mut content = std::fs::read_to_string(&config_path)?;
+                let mut modified = false;
+                let mut backup_value = String::new();
+
+                if let Some((start_block, end_block)) = Self::find_vdf_app_range(&content, app_id) {
+                    let block_slice = &content[start_block..end_block];
+
+                    if let Some(rel_key_idx) = block_slice.find("\"LaunchOptions\"") {
+                        let abs_key_idx = start_block + rel_key_idx;
+                        let after_key_idx = abs_key_idx + "\"LaunchOptions\"".len();
+
+                        let search_area = &content[after_key_idx..end_block];
+                        let mut chars = search_area.char_indices();
+                        
+                        let mut start_quote_idx = None;
+                        for (i, c) in chars.by_ref() {
+                            if !c.is_whitespace() {
+                                if c == '"' { start_quote_idx = Some(i); }
+                                break;
+                            }
+                        }
+
+                        if let Some(sq_rel) = start_quote_idx {
+                            let mut end_quote_rel = None;
+                            for (j, c) in chars {
+                                if c == '"' {
+                                    end_quote_rel = Some(j);
+                                    break;
+                                }
+                            }
+
+                            if let Some(eq_rel) = end_quote_rel {
+                                let val_start_abs = after_key_idx + sq_rel + 1;
+                                let val_end_abs   = after_key_idx + eq_rel;
+
+                                backup_value = content[val_start_abs..val_end_abs].to_string();
+
+                                let range_to_replace = (after_key_idx + sq_rel)..(after_key_idx + eq_rel + 1); // Include quotes
+                                let new_val = format!("\"{}\"", LAUNCH_CMD);
+                                content.replace_range(range_to_replace, &new_val);
+                                modified = true;
+                            }
+                        }
+                    } else {
+                        backup_value = String::new();
+
+                        let insert_str = format!("\t\"LaunchOptions\"\t\t\"{}\"\n\t\t\t\t\t", LAUNCH_CMD);
+                        content.insert_str(end_block, &insert_str);
+                        modified = true;
+                    }
+                }
+
+                if modified {
+                    std::fs::write(&backup_path, &backup_value)?;
+                    std::fs::write(&config_path, content)?;
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn restore_launch_options(&self, app_id: &str) -> Result<(), Error> {
+        if self.hwnd.is_some() {
+            let res = unsafe {
+                MessageBoxW(
+                    self.hwnd.as_ref(),
+                    &HSTRING::from(t!("installer.restore_launch_options_prompt")),
+                    &HSTRING::from(t!("installer.restore_launch_options_title")),
+                    MB_ICONQUESTION | MB_YESNO
+                )
+            };
+            if res != IDYES { return Ok(()); }
+        }
+
+        self.ensure_steam_closed()?;
+
+        let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
+        let backup_path = install_path.join(LAUNCH_OPT_BACKUP_FILE);
+        
+        if !backup_path.exists() { return Ok(()); }
+
+        let backup_value = std::fs::read_to_string(&backup_path).unwrap_or_default();
+
+        let steam_dir = SteamDir::locate().map_err(|_| Error::Generic("Could not locate Steam".into()))?;
+        let userdata_dir = steam_dir.path().join("userdata");
+        if !userdata_dir.exists() { return Ok(()); }
+
+        for entry in std::fs::read_dir(userdata_dir)? {
+            let entry = entry?;
+            let config_path = entry.path().join("config").join("localconfig.vdf");
+
+            if config_path.exists() {
+                let mut content = std::fs::read_to_string(&config_path)?;
+                let mut modified = false;
+
+                if let Some((start_block, end_block)) = Self::find_vdf_app_range(&content, app_id) {
+                    let block_slice = &content[start_block..end_block];
+
+                    if let Some(rel_key_idx) = block_slice.find("\"LaunchOptions\"") {
+                        let abs_key_idx = start_block + rel_key_idx;
+                        let after_key_idx = abs_key_idx + "\"LaunchOptions\"".len();
+
+                        let search_area = &content[after_key_idx..end_block];
+                        let mut chars = search_area.char_indices();
+
+                        let mut start_quote_idx = None;
+                        for (i, c) in chars.by_ref() {
+                            if !c.is_whitespace() {
+                                if c == '"' { start_quote_idx = Some(i); }
+                                break;
+                            }
+                        }
+
+                        if let Some(sq_rel) = start_quote_idx {
+                            let mut end_quote_rel = None;
+                            for (j, c) in chars {
+                                if c == '"' {
+                                    end_quote_rel = Some(j);
+                                    break;
+                                }
+                            }
+
+                            if let Some(eq_rel) = end_quote_rel {
+                                let range_to_replace = (after_key_idx + sq_rel)..(after_key_idx + eq_rel + 1);
+                                let restored_val = format!("\"{}\"", backup_value);
+                                content.replace_range(range_to_replace, &restored_val);
+                                modified = true;
+                            }
+                        }
+                    }
+                }
+
+                if modified {
+                    std::fs::write(&config_path, content)?;
+                }
+            }
+        }
+
+        _ = std::fs::remove_file(backup_path);
 
         Ok(())
     }
@@ -537,55 +692,6 @@ impl Installer {
         Ok(())
     }
 
-    fn check_and_prompt_restore_steam_autoupdate(&self) -> Result<(), Error> {
-        let (steam_app_id_str, install_dir) = match self.game_version {
-            Some(GameVersion::Steam) => ("3564400", self.install_dir.as_ref()),
-            _ => return Ok(()),
-        };
-
-        if let Some(install_dir) = install_dir {
-            if let Some(steamapps_path) = find_steamapps_folder(install_dir) {
-                let manifest_path = steamapps_path.join(format!("appmanifest_{}.acf", steam_app_id_str));
-                let backup_path = manifest_path.with_extension("acf.bak");
-
-                if backup_path.is_file() {
-                    let res = unsafe {
-                        MessageBoxW(
-                            self.hwnd.as_ref(),
-                            &HSTRING::from(t!("installer.steam_auto_update_restore_prompt")),
-                            &HSTRING::from(t!("installer.restore_auto_update_setting")),
-                            MB_ICONQUESTION | MB_YESNO
-                        )
-                    };
-
-                    if res == IDYES {
-                        if let (Ok(live_content), Ok(backup_content)) = (std::fs::read_to_string(&manifest_path), std::fs::read_to_string(&backup_path)) {
-                            let original_setting = backup_content.lines().find(|l| l.contains("\"AutoUpdateBehavior\""));
-                            let current_setting = live_content.lines().find(|l| l.contains("\"AutoUpdateBehavior\""));
-
-                            if let (Some(original), Some(current)) = (original_setting, current_setting) {
-                                let new_content = live_content.replace(current, original);
-                                if std::fs::write(&manifest_path, new_content).is_ok() {
-                                    _ = std::fs::remove_file(&backup_path);
-
-                                    unsafe {
-                                        MessageBoxW(
-                                            self.hwnd.as_ref(),
-                                            &HSTRING::from(t!("installer.steam_auto_update_restored_message")),
-                                            &HSTRING::from(t!("installer.setting_restored")),
-                                            MB_ICONINFORMATION | MB_OK
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub fn uninstall(&self) -> Result<(), Error> {
         let path = self.get_current_target_path().ok_or(Error::NoInstallDir)?;
         std::fs::remove_file(&path)?;
@@ -611,16 +717,15 @@ impl Installer {
 
         if self.game_version == Some(GameVersion::Steam) {
             let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
-            let exe_path = install_path.join("UmamusumePrettyDerby_Jpn.exe");
-            let backup_path = exe_path.with_extension("exe.bak");
 
-            if backup_path.is_file() {
-                std::fs::remove_file(&exe_path)?;
-                std::fs::rename(&backup_path, &exe_path)?;
-            }
+            let patched_path = install_path.join("FunnyHoney.exe");
+            if patched_path.exists() { std::fs::remove_file(patched_path)?; }
+
+            let launcher_path = install_path.join("launcher.ps1");
+            if launcher_path.exists() { std::fs::remove_file(launcher_path)?; }
+
+            self.restore_launch_options("3564400")?;
         }
-
-        self.check_and_prompt_restore_steam_autoupdate()?;
 
         Ok(())
     }
@@ -632,21 +737,6 @@ impl Installer {
     pub fn get_src_plugin_path(&self) -> Option<PathBuf> {
         Some(self.install_dir.as_ref()?.join(format!("umamusume_Data\\Plugins\\x86_64\\{}", self.target.dll_name())))
     }
-}
-
-fn find_steamapps_folder(game_install_dir: &Path) -> Option<PathBuf> {
-    let mut current = game_install_dir.to_path_buf();
-    while let Some(parent) = current.parent() {
-        let steamapps_path = parent.join("steamapps");
-        if steamapps_path.is_dir() {
-            return Some(steamapps_path);
-        }
-        current = parent.to_path_buf();
-        if current.parent().is_none() {
-            break;
-        }
-    }
-    None
 }
 
 impl Default for Installer {

@@ -33,19 +33,18 @@ gui:
 
 installer:
   error_verification_body: "Found %{file_name}, but its hash is incorrect. It matches neither the original nor the known patched version. %{details}"
-  steam_auto_update_recommendation_prompt: "To prevent accidental updates that could break the mod, would you like to change Steam's auto-update setting for this game to 'Update only when I launch it'?\n\nA backup of your original setting will be made."
-  change_auto_update_setting: "Change Auto-Update Setting?"
-  steam_auto_update_success_message: "Steam's auto-update setting for this game has been changed."
-  auto_update_setting_changed: "Auto-update Setting Changed"
+  setup_launch_options_title: "Configure Steam?"
+  setup_launch_options_prompt: "Do you want the installer to automatically configure Steam Launch Options to use the custom launcher?\n\nThis is required for the mod to work on Steam."
+  launch_options_exists_warning: "Existing Launch Options detected in Steam.\n\nWe skipped automatic configuration to avoid overwriting your settings. Please manually set the launch options to:\npowershell -ep Bypass -w h -f .\\launcher.ps1 %command%"
+  restore_launch_options_title: "Restore Launch Options?"
+  restore_launch_options_prompt: "Do you want to restore your original Steam Launch Options?"
+  steam_running_prompt: "Steam must be closed to modify launch options. Please close Steam and click Retry."
   dotlocal_not_enabled: "DotLocal DLL redirection is not enabled. This is required for the specified install target.\nWould you like to enable it?"
   install: "Install"
   restart_to_apply: "Restart your computer to apply the changes."
   dll_redirection_enabled: "DLL redirection enabled"
   failed_open_ifeo: "Failed to open IFEO registry key: %{error}"
   warning: "Warning"
-  steam_auto_update_restore_prompt: "Would you like to restore your original Steam auto-update setting for this game?"
-  restore_auto_update_setting: "Restore Auto-Update Setting?"
-  steam_auto_update_restored_message: "Your original auto-update setting has been restored."
   setting_restored: "Setting Restored"
 
 cli:
