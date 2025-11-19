@@ -428,6 +428,36 @@ impl Installer {
         None
     }
 
+    fn find_vdf_value_range(text: &str) -> Option<(usize, usize)> {
+        let mut chars = text.char_indices();
+        let mut start_quote = None;
+
+        while let Some((i, c)) = chars.next() {
+            if !c.is_whitespace() {
+                if c == '"' { start_quote = Some(i); }
+                break;
+            }
+        }
+        
+        let start = start_quote?;
+
+        let mut escaped = false;
+        for (i, c) in chars {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            
+            if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                return Some((start, i));
+            }
+        }
+        
+        None
+    }
+
     fn get_launch_command(&self) -> Result<String, Error> {
         let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
         let launcher_path = install_path.join(LAUNCHER_EXE_NAME);
@@ -477,38 +507,18 @@ impl Installer {
                     if let Some(rel_key_idx) = block_slice.find("\"LaunchOptions\"") {
                         let abs_key_idx = start_block + rel_key_idx;
                         let after_key_idx = abs_key_idx + "\"LaunchOptions\"".len();
-
                         let search_area = &content[after_key_idx..end_block];
-                        let mut chars = search_area.char_indices();
-                        
-                        let mut start_quote_idx = None;
-                        for (i, c) in chars.by_ref() {
-                            if !c.is_whitespace() {
-                                if c == '"' { start_quote_idx = Some(i); }
-                                break;
-                            }
-                        }
 
-                        if let Some(sq_rel) = start_quote_idx {
-                            let mut end_quote_rel = None;
-                            for (j, c) in chars {
-                                if c == '"' {
-                                    end_quote_rel = Some(j);
-                                    break;
-                                }
-                            }
+                        if let Some((sq, eq)) = Self::find_vdf_value_range(search_area) {
+                             let val_start_abs = after_key_idx + sq + 1;
+                             let val_end_abs   = after_key_idx + eq;
 
-                            if let Some(eq_rel) = end_quote_rel {
-                                let val_start_abs = after_key_idx + sq_rel + 1;
-                                let val_end_abs   = after_key_idx + eq_rel;
+                             backup_value = content[val_start_abs..val_end_abs].to_string();
 
-                                backup_value = content[val_start_abs..val_end_abs].to_string();
-
-                                let range_to_replace = (after_key_idx + sq_rel)..(after_key_idx + eq_rel + 1); // Include quotes
-                                let new_val = format!("\"{}\"", escaped_val);
-                                content.replace_range(range_to_replace, &new_val);
-                                modified = true;
-                            }
+                             let range_to_replace = (after_key_idx + sq)..(after_key_idx + eq + 1);
+                             let new_val = format!("\"{}\"", escaped_val);
+                             content.replace_range(range_to_replace, &new_val);
+                             modified = true;
                         }
                     } else {
                         backup_value = String::new();
@@ -569,33 +579,19 @@ impl Installer {
                     if let Some(rel_key_idx) = block_slice.find("\"LaunchOptions\"") {
                         let abs_key_idx = start_block + rel_key_idx;
                         let after_key_idx = abs_key_idx + "\"LaunchOptions\"".len();
-
                         let search_area = &content[after_key_idx..end_block];
-                        let mut chars = search_area.char_indices();
 
-                        let mut start_quote_idx = None;
-                        for (i, c) in chars.by_ref() {
-                            if !c.is_whitespace() {
-                                if c == '"' { start_quote_idx = Some(i); }
-                                break;
-                            }
-                        }
+                        if let Some((sq, eq)) = Self::find_vdf_value_range(search_area) {
+                             let val_start_abs = after_key_idx + sq + 1;
+                             let val_end_abs   = after_key_idx + eq;
+                             let current_val = &content[val_start_abs..val_end_abs];
 
-                        if let Some(sq_rel) = start_quote_idx {
-                            let mut end_quote_rel = None;
-                            for (j, c) in chars {
-                                if c == '"' {
-                                    end_quote_rel = Some(j);
-                                    break;
-                                }
-                            }
-
-                            if let Some(eq_rel) = end_quote_rel {
-                                let range_to_replace = (after_key_idx + sq_rel)..(after_key_idx + eq_rel + 1);
-                                let restored_val = format!("\"{}\"", backup_value);
-                                content.replace_range(range_to_replace, &restored_val);
-                                modified = true;
-                            }
+                             if current_val.contains(LAUNCHER_EXE_NAME) {
+                                 let range_to_replace = (after_key_idx + sq)..(after_key_idx + eq + 1);
+                                 let restored_val = format!("\"{}\"", backup_value);
+                                 content.replace_range(range_to_replace, &restored_val);
+                                 modified = true;
+                             }
                         }
                     }
                 }
