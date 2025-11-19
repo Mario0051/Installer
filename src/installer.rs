@@ -472,6 +472,44 @@ impl Installer {
     }
 
     fn setup_launch_options(&self, app_id: &str) -> Result<(), Error> {
+        let raw_launch_cmd = self.get_launch_command()?;
+        let escaped_val = Self::escape_vdf_value(&raw_launch_cmd);
+        let expected_vdf_value = format!("\"{}\"", escaped_val);
+
+        let steam_dir = SteamDir::locate().map_err(|_| Error::Generic("Could not locate Steam".into()))?;
+        let userdata_dir = steam_dir.path().join("userdata");
+
+        if userdata_dir.exists() {
+            for entry in std::fs::read_dir(&userdata_dir)? {
+                let entry = entry?;
+                let config_path = entry.path().join("config").join("localconfig.vdf");
+
+                if config_path.exists() {
+                    let content = std::fs::read_to_string(&config_path)?;
+
+                    if let Some((start_block, end_block)) = Self::find_vdf_app_range(&content, app_id) {
+                        let block_slice = &content[start_block..end_block];
+
+                        if let Some(rel_key_idx) = block_slice.find("\"LaunchOptions\"") {
+                            let abs_key_idx = start_block + rel_key_idx;
+                            let after_key_idx = abs_key_idx + "\"LaunchOptions\"".len();
+                            let search_area = &content[after_key_idx..end_block];
+
+                            if let Some((sq, eq)) = Self::find_vdf_value_range(search_area) {
+                                let val_start_abs = after_key_idx + sq;
+                                let val_end_abs = after_key_idx + eq + 1;
+                                let current_val = &content[val_start_abs..val_end_abs];
+
+                                if current_val == expected_vdf_value {
+                                    return Ok(());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if self.hwnd.is_some() {
             let res = unsafe {
                 MessageBoxW(
@@ -486,16 +524,10 @@ impl Installer {
 
         self.ensure_steam_closed()?;
 
-        let steam_dir = SteamDir::locate().map_err(|_| Error::Generic("Could not locate Steam".into()))?;
-        let userdata_dir = steam_dir.path().join("userdata");
         if !userdata_dir.exists() { return Ok(()); }
 
         let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
         let backup_path = install_path.join(LAUNCH_OPT_BACKUP_FILE);
-
-        let raw_launch_cmd = self.get_launch_command()?;
-
-        let escaped_val = Self::escape_vdf_value(&raw_launch_cmd);
 
         for entry in std::fs::read_dir(userdata_dir)? {
             let entry = entry?;
@@ -521,8 +553,7 @@ impl Installer {
                              backup_value = content[val_start_abs..val_end_abs].to_string();
 
                              let range_to_replace = (after_key_idx + sq)..(after_key_idx + eq + 1);
-                             let new_val = format!("\"{}\"", escaped_val);
-                             content.replace_range(range_to_replace, &new_val);
+                             content.replace_range(range_to_replace, &expected_vdf_value);
                              modified = true;
                         }
                     } else {
