@@ -9,29 +9,7 @@ use windows::{core::HSTRING, Win32::{Foundation::HWND, UI::{Shell::{FOLDERID_Roa
 
 use crate::utils::{self, get_system_directory};
 
-const LAUNCHER_SCRIPT: &str = r#"
-Set-Location -Path $PSScriptRoot
-
-$OriginalGame = "UmamusumePrettyDerby_Jpn.exe"
-$PatchedGame  = "FunnyHoney.exe"
-$BackupName   = "$OriginalGame.bak" 
-
-try {
-    Rename-Item -Path $OriginalGame -NewName $BackupName
-
-    Rename-Item -Path $PatchedGame -NewName $OriginalGame
-
-    Start-Process -FilePath $OriginalGame -Wait
-
-} finally {
-    if (Test-Path -Path $BackupName) {
-        Rename-Item -Path $OriginalGame -NewName $PatchedGame
-        Rename-Item -Path $BackupName -NewName $OriginalGame
-    }
-}
-"#;
-
-const LAUNCH_CMD: &str = "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File launcher.ps1 %command%";
+const LAUNCHER_EXE_NAME: &str = "hachimi_launcher.exe";
 const LAUNCH_OPT_BACKUP_FILE: &str = ".hachimi_launch_options.bak";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -405,8 +383,10 @@ impl Installer {
                 utils::apply_patch(&original_exe_data, &patch_data, &patched_exe_path)
                     .map_err(|e| Error::Generic(e.to_string().into()))?;
 
-                let launcher_path = install_path.join("launcher.ps1");
-                std::fs::write(&launcher_path, LAUNCHER_SCRIPT)?;
+                let launcher_path = install_path.join(LAUNCHER_EXE_NAME);
+                let mut f = File::create(&launcher_path)?;
+
+                f.write_all(include_bytes!("../assets/launcher.exe"))?;
 
                 if let Err(e) = self.setup_launch_options("3564400") {
                     return Err(e);
@@ -421,6 +401,10 @@ impl Installer {
         }
 
         Ok(())
+    }
+
+    fn escape_vdf_value(val: &str) -> String {
+        val.replace('\\', "\\\\").replace('"', "\\\"")
     }
 
     fn find_vdf_app_range(content: &str, app_id: &str) -> Option<(usize, usize)> {
@@ -444,6 +428,14 @@ impl Installer {
         None
     }
 
+    fn get_launch_command(&self) -> Result<String, Error> {
+        let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
+        let launcher_path = install_path.join(LAUNCHER_EXE_NAME);
+        let launcher_str = launcher_path.to_str().ok_or(Error::Generic("Invalid launcher path".into()))?;
+
+        Ok(format!("\"{}\" %command%", launcher_str))
+    }
+
     fn setup_launch_options(&self, app_id: &str) -> Result<(), Error> {
         if self.hwnd.is_some() {
             let res = unsafe {
@@ -465,6 +457,10 @@ impl Installer {
 
         let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
         let backup_path = install_path.join(LAUNCH_OPT_BACKUP_FILE);
+
+        let raw_launch_cmd = self.get_launch_command()?;
+
+        let escaped_val = Self::escape_vdf_value(&raw_launch_cmd);
 
         for entry in std::fs::read_dir(userdata_dir)? {
             let entry = entry?;
@@ -509,7 +505,7 @@ impl Installer {
                                 backup_value = content[val_start_abs..val_end_abs].to_string();
 
                                 let range_to_replace = (after_key_idx + sq_rel)..(after_key_idx + eq_rel + 1); // Include quotes
-                                let new_val = format!("\"{}\"", LAUNCH_CMD);
+                                let new_val = format!("\"{}\"", escaped_val);
                                 content.replace_range(range_to_replace, &new_val);
                                 modified = true;
                             }
@@ -517,7 +513,7 @@ impl Installer {
                     } else {
                         backup_value = String::new();
 
-                        let insert_str = format!("\t\"LaunchOptions\"\t\t\"{}\"\n\t\t\t\t\t", LAUNCH_CMD);
+                        let insert_str = format!("\t\"LaunchOptions\"\t\t\"{}\"\n\t\t\t\t\t", escaped_val);
                         content.insert_str(end_block, &insert_str);
                         modified = true;
                     }
