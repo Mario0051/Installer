@@ -429,32 +429,37 @@ impl Installer {
     }
 
     fn find_vdf_value_range(text: &str) -> Option<(usize, usize)> {
-        let mut chars = text.char_indices();
+        let chars: Vec<(usize, char)> = text.char_indices().collect();
         let mut start_quote = None;
+        let mut idx = 0;
 
-        while let Some((i, c)) = chars.next() {
+        while idx < chars.len() {
+            let (pos, c) = chars[idx];
             if !c.is_whitespace() {
-                if c == '"' { start_quote = Some(i); }
-                break;
+                if c == '"' {
+                    start_quote = Some(pos);
+                    idx += 1;
+                    break;
+                } else {
+                    return None;
+                }
             }
+            idx += 1;
         }
-        
-        let start = start_quote?;
 
-        let mut escaped = false;
-        for (i, c) in chars {
-            if escaped {
-                escaped = false;
+        let start_pos = start_quote?;
+
+        while idx < chars.len() {
+            let (pos, c) = chars[idx];
+            if c == '\\' {
+                idx += 2;
                 continue;
             }
-            
-            if c == '\\' {
-                escaped = true;
-            } else if c == '"' {
-                return Some((start, i));
+            if c == '"' {
+                return Some((start_pos, pos));
             }
+            idx += 1;
         }
-        
         None
     }
 
