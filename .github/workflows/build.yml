@@ -103,8 +103,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -fa nightly -m "Nightly Build from commit ${{ github.sha }}"
-          git push origin nightly --force
+          git tag -fa stable -m "Stable Build from commit ${{ github.sha }}"
+          git push origin stable --force
         shell: bash
 
       - name: Upload Asset to Nightly Release
@@ -113,7 +113,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/release/${{ env.ARTIFACT_NAME }}
-          tag: nightly
+          tag: stable
           overwrite: true
           prerelease: true
           make_latest: false
