@@ -30,6 +30,7 @@ installer:
   restart_to_apply: "Restart your computer to apply the changes."
   dll_redirection_enabled: "DLL redirection enabled"
   failed_open_ifeo: "Failed to open IFEO registry key: %{error}"
+  failed_enable_dotlocal: "Failed to enable DLL redirection: %{error}"
   warning: "Warning"
 
 cli:

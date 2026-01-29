@@ -30,6 +30,7 @@ installer:
   restart_to_apply:     "请重启电脑以应用更改。"
   dll_redirection_enabled: "DLL 重定向已启用"
   failed_open_ifeo:     "无法打开 IFEO 注册表项：%{error}"
+  failed_enable_dotlocal: "无法启用 DLL 重定向：%{error}"
   warning:              "警告"
 
 cli:
