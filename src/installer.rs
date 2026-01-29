@@ -1,10 +1,10 @@
-use std::{fs::File, io::Write, path::{Path, PathBuf}};
+use std::{env, fs::File, io::Write, path::{Path, PathBuf}};
 use std::sync::{Arc, Mutex};
 use pelite::resources::version_info::Language;
 use registry::Hive;
 use tinyjson::JsonValue;
 use crate::i18n::t;
-use windows::{core::HSTRING, Win32::{Foundation::HWND, UI::{Shell::{FOLDERID_RoamingAppData, SHGetKnownFolderPath, KF_FLAG_DEFAULT}, WindowsAndMessaging::{MessageBoxW, IDOK, MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_OKCANCEL}}}};
+use windows::{core::HSTRING, Win32::{Foundation::HWND, UI::{Shell::{FOLDERID_RoamingAppData, SHGetKnownFolderPath, KF_FLAG_DEFAULT, ShellExecuteW}, WindowsAndMessaging::{MessageBoxW, IDOK, MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MB_OKCANCEL, SW_SHOWNORMAL}}}};
 #[cfg(feature = "net_install")]
 use bytes::Bytes;
 use steamlocate::SteamDir;
@@ -16,6 +16,85 @@ type DownloadResult = Result<Bytes, reqwest::Error>;
 
 pub const GLOBAL_STEAM_ID: u32 = 3224770;
 pub const JP_STEAM_ID: u32 = 3564400;
+
+const DEVOVERRIDE_KEY: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options";
+
+// separate out read check cus it doesnt require admin privileges
+pub fn is_dotlocal_enabled() -> bool {
+    match Hive::LocalMachine.open(DEVOVERRIDE_KEY, registry::Security::Read) {
+        Ok(regkey) => {
+            regkey.value("DevOverrideEnable")
+                .ok()
+                .map(|v| match v {
+                    registry::Data::U32(v) => v != 0,
+                    _ => false
+                })
+                .unwrap_or(false)
+        },
+        Err(_) => false
+    }
+}
+
+// enable dotlocal in registry, run as admin required
+pub fn enable_dotlocal() {
+    match Hive::LocalMachine.open(DEVOVERRIDE_KEY, registry::Security::Read | registry::Security::SetValue) {
+        Ok(regkey) => {
+            match regkey.set_value("DevOverrideEnable", &registry::Data::U32(1)) {
+                Ok(_) => {
+                    unsafe {
+                        MessageBoxW(
+                            None,
+                            &HSTRING::from(t!("installer.restart_to_apply")),
+                            &HSTRING::from(t!("installer.dll_redirection_enabled")),
+                            MB_ICONINFORMATION | MB_OK
+                        );
+                    }
+                },
+                Err(e) => {
+                    unsafe {
+                        MessageBoxW(
+                            None,
+                            &HSTRING::from(t!("installer.failed_enable_dotlocal", error = e)),
+                            &HSTRING::from(t!("installer.warning")),
+                            MB_ICONERROR | MB_OK
+                        );
+                    }
+                }
+            }
+        },
+        Err(e) => {
+            unsafe {
+                MessageBoxW(
+                    None,
+                    &HSTRING::from(t!("installer.failed_open_ifeo", error = e)),
+                    &HSTRING::from(t!("installer.warning")),
+                    MB_ICONERROR | MB_OK
+                );
+            }
+        }
+    }
+}
+
+fn request_dotlocal_elevation(hwnd: Option<&HWND>) -> bool {
+    let exe_path = env::current_exe().ok();
+    let Some(exe_path) = exe_path else {
+        return false;
+    };
+
+    let result = unsafe {
+        ShellExecuteW(
+            hwnd.map(|h| *h).unwrap_or_default(),
+            &HSTRING::from("runas"),
+            &HSTRING::from(exe_path.to_string_lossy().as_ref()),
+            &HSTRING::from("--enable-dotlocal"),
+            None,
+            SW_SHOWNORMAL
+        )
+    };
+
+    // ShellExecuteW returns a value > 32 on success
+    result.0 as usize > 32
+}
 
 pub struct Installer {
     pub install_dir: Option<PathBuf>,
@@ -281,47 +360,18 @@ impl Installer {
                 file.write(include_bytes!("../cellar.dll"))?;
 
                 // Check for DLL redirection
-                match Hive::LocalMachine.open(
-                    r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options",
-                    registry::Security::Read | registry::Security::SetValue
-                ) {
-                    Ok(regkey) => {
-                        if regkey.value("DevOverrideEnable")
-                            .ok()
-                            .map(|v| match v {
-                                registry::Data::U32(v) => v,
-                                _ => 0
-                            })
-                            .unwrap_or(0) == 0
-                        {
-                            let res = unsafe {
-                                MessageBoxW(
-                                    self.hwnd.lock().unwrap().as_ref(),
-                                    &HSTRING::from(t!("installer.dotlocal_not_enabled")),
-                                    &HSTRING::from(t!("installer.install")),
-                                    MB_ICONINFORMATION | MB_OKCANCEL
-                                )
-                            };
-                            if res == IDOK {
-                                regkey.set_value("DevOverrideEnable", &registry::Data::U32(1))?;
-                                unsafe {
-                                    MessageBoxW(
-                                        self.hwnd.lock().unwrap().as_ref(),
-                                        &HSTRING::from(t!("installer.restart_to_apply")),
-                                        &HSTRING::from(t!("installer.dll_redirection_enabled")),
-                                        MB_ICONINFORMATION | MB_OK
-                                    );
-                                }
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        unsafe { MessageBoxW(
+                if !is_dotlocal_enabled() {
+                    let res = unsafe {
+                        MessageBoxW(
                             self.hwnd.lock().unwrap().as_ref(),
-                            &HSTRING::from(t!("installer.failed_open_ifeo", error = e)),
-                            &HSTRING::from(t!("installer.warning")),
-                            MB_OK | MB_ICONWARNING
-                        )};
+                            &HSTRING::from(t!("installer.dotlocal_not_enabled")),
+                            &HSTRING::from(t!("installer.install")),
+                            MB_ICONINFORMATION | MB_OKCANCEL
+                        )
+                    };
+                    if res == IDOK {
+                        // Request elevation to enable DotLocal
+                        request_dotlocal_elevation(self.hwnd.lock().unwrap().as_ref());
                     }
                 }
             },

@@ -22,7 +22,8 @@ struct Args {
     launch_game: bool,
     game_args: Vec<String>,
     pre_install: bool,
-    post_install: bool
+    post_install: bool,
+    enable_dotlocal: bool
 }
 
 enum Command {
@@ -73,6 +74,7 @@ impl Args {
                 "--launch-game" => args.launch_game = true,
                 "--pre-install" => args.pre_install = true,
                 "--post-install" => args.post_install = true,
+                "--enable-dotlocal" => args.enable_dotlocal = true,
                 "--" => in_game_args = true,
 
                 _ => {
@@ -88,7 +90,13 @@ impl Args {
 
 pub fn run() -> Result<bool, installer::Error> {
     let mut args = Args::parse();
-    
+
+    // Handle --enable-dotlocal (runs elevated)
+    if args.enable_dotlocal {
+        installer::enable_dotlocal();
+        return Ok(true);
+    }
+
     if let Some(command) = args.command {
         if let Some(sleep) = args.sleep {
             std::thread::sleep(std::time::Duration::from_millis(sleep));
