@@ -361,7 +361,7 @@ impl Installer {
             Some(GameVersion::DMM) => {},
             Some(GameVersion::SteamGlobal) => {},
             Some(GameVersion::Steam) => {
-                const EXPECTED_ORIGINAL_HASH: &str = "7057e1ca9e8e66c3c7b3e720d60d8718a50168c4ca9521611127fbf8891cb45c";
+                const EXPECTED_ORIGINAL_HASH: &str = "ec6bd7a2a6cb87f7f053912a299ace442781038441ba1e3229fb9832175f51f4";
                 let steam_exe_path = install_path.join("UmamusumePrettyDerby_Jpn.exe");
                 let patched_exe_path = install_path.join("FunnyHoney.exe");
 
