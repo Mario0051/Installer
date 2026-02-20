@@ -9,7 +9,6 @@ use windows::{core::HSTRING, Win32::{Foundation::HWND, UI::{Shell::{FOLDERID_Roa
 
 use crate::utils::{self, get_system_directory};
 
-const LAUNCHER_EXE_NAME: &str = "hachimi_launcher.exe";
 const LAUNCH_OPT_BACKUP_FILE: &str = ".hachimi_launch_options.bak";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -383,11 +382,6 @@ impl Installer {
                 utils::apply_patch(&original_exe_data, &patch_data, &patched_exe_path)
                     .map_err(|e| Error::Generic(e.to_string().into()))?;
 
-                let launcher_path = install_path.join(LAUNCHER_EXE_NAME);
-                let mut f = File::create(&launcher_path)?;
-
-                f.write_all(include_bytes!("../assets/launcher.exe"))?;
-
                 if let Err(e) = self.setup_launch_options("3564400") {
                     return Err(e);
                 }
@@ -464,11 +458,12 @@ impl Installer {
     }
 
     fn get_launch_command(&self) -> Result<String, Error> {
-        let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
-        let launcher_path = install_path.join(LAUNCHER_EXE_NAME);
-        let launcher_str = launcher_path.to_str().ok_or(Error::Generic("Invalid launcher path".into()))?;
-
-        Ok(format!("\"{}\" %command%", launcher_str))
+        if std::env::var("WINEPREFIX").is_ok() || std::env::var("WINEDIR").is_ok() {
+            Ok(String::from("cp -f FunnyHoney.exe UmamusumePrettyDerby_Jpn.exe && %command%"))
+        }
+        else {
+            Ok(String::from("powershell -WindowStyle Hidden -Command \"$exe = '%command%'.Trim([char]34); Copy-Item -Force FunnyHoney.exe UmamusumePrettyDerby_Jpn.exe; Start-Process -FilePath $exe -Wait\""))
+        }
     }
 
     fn setup_launch_options(&self, app_id: &str) -> Result<(), Error> {
@@ -748,9 +743,6 @@ impl Installer {
 
             let patched_path = install_path.join("FunnyHoney.exe");
             if patched_path.exists() { std::fs::remove_file(patched_path)?; }
-
-            let launcher_path = install_path.join("launcher.ps1");
-            if launcher_path.exists() { std::fs::remove_file(launcher_path)?; }
 
             self.restore_launch_options("3564400")?;
         }
