@@ -617,7 +617,7 @@ impl Installer {
                              let val_end_abs   = after_key_idx + eq;
                              let current_val = &content[val_start_abs..val_end_abs];
 
-                             if current_val.contains(LAUNCHER_EXE_NAME) {
+                             if current_val.contains("FunnyHoney.exe") {
                                  let range_to_replace = (after_key_idx + sq)..(after_key_idx + eq + 1);
                                  let restored_val = format!("\"{}\"", backup_value);
                                  content.replace_range(range_to_replace, &restored_val);
