@@ -78,15 +78,6 @@ jobs:
         with:
           name: cellar-dll
 
-      - name: Download Launcher
-        uses: dsaltares/fetch-gh-release-asset@master
-        with:
-          repo: ${{ env.LAUNCHER_REPO }}
-          version: ${{ env.LAUNCHER_VERSION }}
-          file: hachimi_launcher.exe
-          target: assets/launcher.exe
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build Installer executable
         run: cargo build --release --features compress_dll
         env:
