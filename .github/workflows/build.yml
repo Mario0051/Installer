@@ -60,8 +60,6 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       ARTIFACT_NAME: hachimi_installer.exe
-      LAUNCHER_REPO: Mario0051/Hachimi-Launcher 
-      LAUNCHER_VERSION: latest
     steps:
       - uses: actions/checkout@v4
         with:
