@@ -92,8 +92,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -fa stable -m "Stable Build from commit ${{ github.sha }}"
-          git push origin stable --force
+          git tag -fa nightly -m "Nightly Build from commit ${{ github.sha }}"
+          git push origin nightly --force
         shell: bash
 
       - name: Upload Asset to Nightly Release
