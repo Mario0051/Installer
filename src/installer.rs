@@ -462,7 +462,7 @@ impl Installer {
             Ok(String::from("cp -f FunnyHoney.exe UmamusumePrettyDerby_Jpn.exe && %command%"))
         }
         else {
-            Ok(String::from("powershell -WindowStyle Hidden -Command \"$exe = '%command%'.Trim([char]34); Copy-Item -Force FunnyHoney.exe UmamusumePrettyDerby_Jpn.exe; Start-Process -FilePath $exe -Wait\""))
+            Ok(String::from("conhost --headless powershell -Command \"$exe = '%command%'.Trim([char]34); Copy-Item -Force FunnyHoney.exe UmamusumePrettyDerby_Jpn.exe; Start-Process -FilePath $exe -Wait\""))
         }
     }
 
