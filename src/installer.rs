@@ -393,7 +393,7 @@ impl Installer {
 
         let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
 
-        const EXPECTED_ORIGINAL_HASH: &str = "ea6d6c128838db4bf15307f7aeee29b51c626b886721f9a197e55376994834ce";
+        const EXPECTED_ORIGINAL_HASH: &str = "9869a5302a09b3094fd42448d70d548f2462e9aa3e6636a0bc2cd04ac603465f";
         const EXPECTED_PATCHED_HASH: &str = "9d6955463a0a509a2355d2227a4ee9ef0ca5da3f0f908b0c846a1e3c218cb703";
 
         match self.game_version {
