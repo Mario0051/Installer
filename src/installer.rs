@@ -356,11 +356,12 @@ impl Installer {
 
         let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
 
+        const EXPECTED_ORIGINAL_HASH: &str = "6519de9bbae11d3f7b779ce09b74e0a0c408b814518bff93da295c8f7b65ad5a";
+
         match self.game_version {
             Some(GameVersion::DMM) => {},
             Some(GameVersion::SteamGlobal) => {},
             Some(GameVersion::Steam) => {
-                const EXPECTED_ORIGINAL_HASH: &str = "ea6d6c128838db4bf15307f7aeee29b51c626b886721f9a197e55376994834ce";
                 let steam_exe_path = install_path.join("UmamusumePrettyDerby_Jpn.exe");
                 let patched_exe_path = install_path.join("FunnyHoney.exe");
 
