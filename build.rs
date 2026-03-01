@@ -1,5 +1,5 @@
 use pelite::resources::version_info::{Language, VersionInfo};
-use std::env;
+use std::{env, path::PathBuf, process::Command};
 
 fn read_pe_version_info<'a>(image: &'a [u8]) -> Option<VersionInfo<'a>> {
     pelite::PeFile::from_bytes(image).ok()?.resources().ok()?.version_info().ok()
@@ -64,4 +64,23 @@ fn main() {
     detect_hachimi_version();
     compile_resources();
     set_repository_info();
+
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let final_launcher_path = PathBuf::from(&out_dir).join("hachimi_launcher.exe");
+
+    let status = Command::new("cargo")
+        .args(&["build", "--release", "--target-dir", &format!("{}/launcher_target", out_dir)])
+        .current_dir("launcher")
+        .status()
+        .expect("Failed to build the launcher");
+
+    if status.success() {
+        let compiled_exe_path = PathBuf::from(&out_dir).join("launcher_target/release/hachimi_launcher.exe");
+        std::fs::copy(compiled_exe_path, final_launcher_path).expect("Failed to copy launcher exe");
+    } else {
+        panic!("Failed to compile the launcher sub-project.");
+    }
+
+    println!("cargo:rerun-if-changed=launcher/src");
+    println!("cargo:rerun-if-changed=launcher/Cargo.toml");
 }

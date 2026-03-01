@@ -382,6 +382,10 @@ impl Installer {
                 utils::apply_patch(&original_exe_data, &patch_data, &patched_exe_path)
                     .map_err(|e| Error::Generic(e.to_string().into()))?;
 
+                let launcher_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/hachimi_launcher.exe"));
+                let launcher_path = install_path.join("hachimi_launcher.exe");
+                std::fs::write(&launcher_path, launcher_bytes)?;
+
                 if let Err(e) = self.setup_launch_options("3564400") {
                     return Err(e);
                 }
@@ -462,7 +466,10 @@ impl Installer {
             Ok(String::from("cp -f FunnyHoney.exe UmamusumePrettyDerby_Jpn.exe && %command%"))
         }
         else {
-            Ok(String::from("conhost --headless powershell -Command \"$exe = '%command%'.Trim([char]34); Copy-Item -Force FunnyHoney.exe UmamusumePrettyDerby_Jpn.exe; Start-Process -FilePath $exe -Wait\""))
+            let install_path = self.install_dir.as_ref().ok_or(Error::NoInstallDir)?;
+            let launcher_path = install_path.join("hachimi_launcher.exe");
+
+            Ok(format!("\"{}\" %command%", launcher_path.display()))
         }
     }
 
@@ -743,6 +750,9 @@ impl Installer {
 
             let patched_path = install_path.join("FunnyHoney.exe");
             if patched_path.exists() { std::fs::remove_file(patched_path)?; }
+
+            let launcher_path = install_path.join("hachimi_launcher.exe");
+            if launcher_path.exists() { std::fs::remove_file(launcher_path)?; }
 
             self.restore_launch_options("3564400")?;
         }
