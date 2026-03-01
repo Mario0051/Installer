@@ -6,6 +6,8 @@ use std::process::Command;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    let _ = std::fs::copy("FunnyHoney.exe", "UmamusumePrettyDerby_Jpn.exe");
+
     let target_exe = if args.len() > 1 {
         args[1].clone()
     } else {
