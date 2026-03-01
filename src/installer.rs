@@ -365,23 +365,31 @@ impl Installer {
                 let steam_exe_path = install_path.join("UmamusumePrettyDerby_Jpn.exe");
                 let patched_exe_path = install_path.join("FunnyHoney.exe");
 
+                let mut skip_patching = false;
+
                 if let Err(e) = utils::verify_file_hash(&steam_exe_path, EXPECTED_ORIGINAL_HASH) {
-                    let error_msg = t!(
-                        "installer.error_verification_body",
-                        file_name = "UmamusumePrettyDerby_Jpn.exe",
-                        details = e.to_string()
-                    );
-                    return Err(Error::VerificationError(error_msg));
+                    if patched_exe_path.exists() {
+                        skip_patching = true;
+                    } else {
+                        let error_msg = t!(
+                            "installer.error_verification_body",
+                            file_name = "UmamusumePrettyDerby_Jpn.exe",
+                            details = e.to_string()
+                        );
+                        return Err(Error::VerificationError(error_msg));
+                    }
                 }
 
-                let original_exe_data = std::fs::read(&steam_exe_path)?;
-                let compressed_patch_data = include_bytes!("../umamusume.patch.zst");
-                let mut patch_data = Vec::new();
-                let mut decoder = zstd::Decoder::new(&compressed_patch_data[..])?;
-                decoder.read_to_end(&mut patch_data)?;
+                if !skip_patching {
+                    let original_exe_data = std::fs::read(&steam_exe_path)?;
+                    let compressed_patch_data = include_bytes!("../umamusume.patch.zst");
+                    let mut patch_data = Vec::new();
+                    let mut decoder = zstd::Decoder::new(&compressed_patch_data[..])?;
+                    decoder.read_to_end(&mut patch_data)?;
 
-                utils::apply_patch(&original_exe_data, &patch_data, &patched_exe_path)
-                    .map_err(|e| Error::Generic(e.to_string().into()))?;
+                    utils::apply_patch(&original_exe_data, &patch_data, &patched_exe_path)
+                        .map_err(|e| Error::Generic(e.to_string().into()))?;
+                }
 
                 let launcher_bytes = include_bytes!(concat!(env!("OUT_DIR"), "/hachimi_launcher.exe"));
                 let launcher_path = install_path.join("hachimi_launcher.exe");
